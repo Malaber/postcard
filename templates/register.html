@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Passkey Registrierung</title>
+    <script src="https://unpkg.com/@github/webauthn-json@2.1.1/dist/browser-global/index.js"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; padding-top: 50px; }
+        .card { border: 1px solid #ccc; padding: 20px; border-radius: 8px; width: 300px; }
+        input { width: 100%; padding: 8px; margin: 10px 0; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        #status { margin-top: 10px; font-size: 0.9em; color: #666; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Registrieren</h2>
+    <input type="text" id="username" placeholder="Dein Name (z.B. Oma)" />
+    <button onclick="registerUser()">Passkey erstellen</button>
+    <div id="status"></div>
+</div>
+
+<script>
+    async function registerUser() {
+        const username = document.getElementById('username').value;
+        const status = document.getElementById('status');
+
+        if (!username) {
+            status.innerText = "Bitte Namen eingeben!";
+            return;
+        }
+
+        try {
+            status.innerText = "Starte Fingerabdruck-Scan...";
+
+            // 1. Optionen vom Server holen (Challenge)
+            const optionsRes = await fetch(`/auth/register/options/?username=${username}`);
+            if (!optionsRes.ok) throw new Error(await optionsRes.text());
+
+            // Das Backend liefert JSON, wir parsen es
+            const options = await optionsRes.json();
+
+            // 2. Browser auffordern, Passkey zu erstellen
+            // webauthnJSON.create() macht die Magie: JSON -> Binary -> Browser -> Binary -> JSON
+            const credential = await webauthnJSON.create({ publicKey: options });
+
+            // 3. Ergebnis zurück an den Server schicken
+            const verifyRes = await fetch('/auth/register/verify/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(credential)
+            });
+
+            const result = await verifyRes.json();
+
+            if (verifyRes.ok) {
+                status.innerText = `Erfolg! Hallo ${result.user}. Du bist jetzt eingeloggt.`;
+                status.style.color = "green";
+            } else {
+                throw new Error("Verifikation fehlgeschlagen");
+            }
+
+        } catch (e) {
+            console.error(e);
+            status.innerText = `Fehler: ${e.message}`;
+            status.style.color = "red";
+        }
+    }
+</script>
+
+</body>
+</html>
