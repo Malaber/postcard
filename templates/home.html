@@ -1,17 +1,47 @@
 {% extends 'base.html' %}
 
 {% block content %}
-    <div style="text-align: center; margin-top: 50px;">
+    <div style="max-width: 800px; margin: 0 auto;">
+
         {% if user.is_authenticated %}
-            <h1>Your Picture Frames</h1>
-            <p>You don't have any frames yet.</p>
-            <button style="padding: 10px 20px; font-size: 1rem; margin-top: 20px;">+ Create New Frame</button>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                <h1 style="margin: 0;">Your Picture Frames</h1>
+                <a href="#" class="btn-primary" style="font-size: 0.9rem;">+ New Frame</a>
+            </div>
+
+            {% if frames %}
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px;">
+                    {% for frame in frames %}
+                        <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                            <h3 style="margin-top: 0;">{{ frame.name }}</h3>
+                            <p style="color: #666; font-size: 0.9rem;">
+                                Created: {{ frame.created_at|date:"M d, Y" }}
+                            </p>
+
+                            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                                <a href="#" style="text-decoration: none; color: #2563eb; font-weight: bold;">Upload Photos</a>
+                                <span style="color: #ccc;">|</span>
+                                <a href="{{ frame.get_viewer_url }}" target="_blank" style="text-decoration: none; color: #555;">View Frame ↗</a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div style="text-align: center; padding: 50px; background: white; border-radius: 8px; color: #666;">
+                    <p>You haven't created any frames yet.</p>
+                    <p>Create one to start sharing photos!</p>
+                </div>
+            {% endif %}
+
         {% else %}
-            <h1>Welcome to Postcard</h1>
-            <p>The secure way to send photos to your family's digital frames.</p>
-            <div style="margin-top: 30px;">
-                <a href="{% url 'login_page' %}" class="btn-primary" style="font-size: 1.2rem; padding: 12px 24px;">Login with Passkey</a>
+            <div style="text-align: center; margin-top: 50px;">
+                <h1>Welcome to Postcard 🖼️</h1>
+                <p>The secure way to send photos to your family's digital frames.</p>
+                <div style="margin-top: 30px;">
+                    <a href="{% url 'login_page' %}" class="btn-primary" style="font-size: 1.2rem; padding: 12px 24px;">Login with Passkey</a>
+                </div>
             </div>
         {% endif %}
+
     </div>
 {% endblock %}

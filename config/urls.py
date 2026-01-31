@@ -16,12 +16,13 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from django.views.generic import TemplateView  # Add this
+from django.views.generic import TemplateView
+from postcard import views as postcard_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('auth/', include('accounts.urls')),
 
     # Define the Homepage
-    path('', TemplateView.as_view(template_name='home.html'), name='home'),
+    path('', postcard_views.home_view, name='home'),
 ]
