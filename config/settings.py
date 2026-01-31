@@ -138,3 +138,9 @@ SESSION_COOKIE_HTTPONLY = True
 
 # SameSite policy (Lax is good for normal navigation)
 SESSION_COOKIE_SAMESITE = 'Lax'
+
+# Base url to serve media files
+MEDIA_URL = '/media/'
+
+# Path where media is stored
+MEDIA_ROOT = BASE_DIR / 'media'
