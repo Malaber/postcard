@@ -1,9 +1,12 @@
 from webauthn.helpers import bytes_to_base64url
 from django.conf import settings
 
-# In Produktion muss das deine echte Domain sein!
+# CRITICAL: This must match your browser URL exactly (without port)
 RP_ID = "localhost"
-RP_NAME = "Omas Bilderrahmen"
+
+RP_NAME = "Postcard"
+
+# This must match the full URL including scheme and port
 ORIGIN = "http://localhost:8000"
 
 def get_rp_id():

@@ -34,11 +34,10 @@
         const username = document.getElementById('username').value;
         const status = document.getElementById('status');
 
-        // Check for native support
-        if (!window.PublicKeyCredential || !PublicKeyCredential.parseCreationOptionsFromJSON) {
-            status.innerHTML = "<span class='error'>Your browser is too old for native Passkeys. Please update.</span>";
-            return;
-        }
+        // --- DEBUG START ---
+        console.log("Current Browser URL:", window.location.href);
+        console.log("Current Browser Hostname:", window.location.hostname);
+        // --- DEBUG END ---
 
         if (!username) {
             status.innerHTML = "<span class='error'>Please enter a username!</span>";
@@ -48,28 +47,26 @@
         try {
             status.innerHTML = "Requesting challenge...";
 
-            // 1. Get Options from Server
             const optionsRes = await fetch(`/auth/register/options/?username=${encodeURIComponent(username)}`);
-            if (!optionsRes.ok) throw new Error(await optionsRes.text());
-
             const optionsJSON = await optionsRes.json();
 
-            status.innerHTML = "Waiting for fingerprint/face scan...";
+            // --- DEBUG START ---
+            console.log("Server requested RP ID:", optionsJSON.rp.id);
+            if (optionsJSON.rp.id !== window.location.hostname) {
+                console.error(`MISMATCH! Server wants '${optionsJSON.rp.id}' but browser is on '${window.location.hostname}'`);
+                alert(`Config Error: Server expects '${optionsJSON.rp.id}' but you are on '${window.location.hostname}'`);
+                return;
+            }
+            // --- DEBUG END ---
 
-            // 2. NATIVE API: Convert JSON to Binary Options
-            // This replaces the old library!
             const publicKeyOptions = PublicKeyCredential.parseCreationOptionsFromJSON(optionsJSON);
 
-            // 3. Create Credential
+            status.innerHTML = "Waiting for fingerprint/face scan...";
             const credential = await navigator.credentials.create({ publicKey: publicKeyOptions });
-
-            // 4. NATIVE API: Convert Binary Result back to JSON
-            // credential.toJSON() automatically formats it for the server
             const credentialJSON = credential.toJSON();
 
             status.innerHTML = "Verifying...";
 
-            // 5. Send to Server
             const verifyRes = await fetch('/auth/register/verify/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
