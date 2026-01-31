@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div style="max-width: 600px; margin: 0 auto; background: white; padding: 2rem; border-radius: 12px; border: 1px solid #ddd;">
+
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+        <h2 style="margin: 0;">Upload to: {{ frame.name }}</h2>
+        <a href="{% url 'home' %}" style="text-decoration: none; color: #666;">&larr; Back</a>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" id="uploadForm">
+        {% csrf_token %}
+
+        <div style="border: 2px dashed #ccc; padding: 40px; text-align: center; border-radius: 8px; background: #fafafa; cursor: pointer;"
+             onclick="document.getElementById('fileInput').click()">
+
+            <p style="font-size: 3rem; margin: 0;">📸</p>
+            <p style="font-weight: bold; color: #555;">Click to select photos</p>
+            <p style="color: #888; font-size: 0.9rem;">(You can select multiple files)</p>
+
+            <input type="file" name="images" id="fileInput" multiple accept="image/*" style="display: none;" onchange="updateCount()">
+        </div>
+
+        <div id="fileCount" style="margin: 15px 0; text-align: center; font-weight: bold; color: #2563eb;"></div>
+
+        <button type="submit" class="btn-primary" style="width: 100%; padding: 15px; font-size: 1.1rem; margin-top: 10px; border:none; cursor: pointer;">
+            Upload Photos
+        </button>
+    </form>
+</div>
+
+<script>
+    function updateCount() {
+        const input = document.getElementById('fileInput');
+        const display = document.getElementById('fileCount');
+        if (input.files.length > 0) {
+            display.innerText = input.files.length + " photo(s) selected ready to upload.";
+        } else {
+            display.innerText = "";
+        }
+    }
+</script>
+{% endblock %}

@@ -19,7 +19,7 @@
                             </p>
 
                             <div style="margin-top: 15px; display: flex; gap: 10px;">
-                                <a href="#" style="text-decoration: none; color: #2563eb; font-weight: bold;">Upload Photos</a>
+                                <a href="{% url 'frame_upload' frame.id %}" style="text-decoration: none; color: #2563eb; font-weight: bold;">Upload Photos</a>
                                 <span style="color: #ccc;">|</span>
                                 <a href="{{ frame.get_viewer_url }}" target="_blank" style="text-decoration: none; color: #555;">View Frame ↗</a>
                             </div>

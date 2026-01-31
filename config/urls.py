@@ -25,4 +25,5 @@ urlpatterns = [
 
     # Define the Homepage
     path('', postcard_views.home_view, name='home'),
+    path('p/', include('postcard.urls')),
 ]
