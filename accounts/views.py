@@ -24,6 +24,8 @@ from webauthn.helpers.structs import (
 from .models import User, PasskeyCredential
 from .utils import RP_ID, RP_NAME, ORIGIN
 
+import traceback
+
 
 def register_options(request):
     """
@@ -135,45 +137,48 @@ def login_options(request):
 
 @csrf_exempt
 def login_verify(request):
+    print("--- DEBUG: Login Verify Started ---")
     try:
         data = json.loads(request.body)
-        username = data.get('username')
+        print(f"DEBUG: Received Data Payload keys: {data.keys()}")
+        print(f"DEBUG: Credential ID: {data.get('id')}")
 
-        # 1. Get User
+        username = data.get('username')
         user = User.objects.get(username=username)
 
-        # 2. Find the specific credential used (by ID)
         credential_id = data.get('id')
         passkey_record = PasskeyCredential.objects.get(credential_id=credential_id, user=user)
 
-        # 3. Retrieve challenge
-        challenge_b64 = request.session.get('challenge')
-        if not challenge_b64:
-            return JsonResponse({"status": "error", "message": "No challenge in session"}, status=400)
+        print(f"DEBUG: Found Passkey Record: {passkey_record}")
+        print(f"DEBUG: Stored Public Key (First 20 chars): {passkey_record.public_key[:20]}...")
+        print(f"DEBUG: Sign Count Type: {type(passkey_record.sign_count)} Value: {passkey_record.sign_count}")
 
-        # 4. Verify Signature
+        challenge_b64 = request.session.get('challenge')
+
+        # Die eigentliche Verifikation
         verify_authentication_response(
             credential=data,
             expected_challenge=base64url_to_bytes(challenge_b64),
             expected_origin=ORIGIN,
             expected_rp_id=RP_ID,
             credential_public_key=base64url_to_bytes(passkey_record.public_key),
-            credential_current_sign_count=passkey_record.sign_count
+            credential_current_sign_count=int(passkey_record.sign_count)  # Sicherstellen, dass es int ist
         )
 
-        # 5. Update Sign Count (prevent replay attacks)
-        # Note: Some authenticators (like iCloud Keychain) don't increment this, which is fine.
+        # Update Sign Count
         new_sign_count = data.get('response', {}).get('authenticatorData', {}).get('signCount')
         if new_sign_count:
             passkey_record.sign_count = new_sign_count
             passkey_record.save()
 
-        # 6. Log In
         login(request, user)
         del request.session['challenge']
 
         return JsonResponse({"status": "ok", "user": username})
 
     except Exception as e:
-        print(f"LOGIN ERROR: {e}")
+        # Hier drucken wir den Vollen Fehler aus!
+        print("!!! LOGIN ERROR TRACEBACK !!!")
+        traceback.print_exc()
+        print("-----------------------------")
         return JsonResponse({"status": "error", "message": str(e)}, status=400)
