@@ -67,12 +67,24 @@
     const TOKEN = "{{ frame.access_token }}";
     const API_URL = `/p/frame/${TOKEN}/api/`;
     const PHOTO_CACHE_NAME = `frame-photos-${TOKEN}`;
+
     const SYNC_INTERVAL = 1000; // TODO Shorter interval if not DEBUG 60*1000 is 60 sec, use 300*1000
     const SLIDE_DURATION = 5000;    // TODO set to 20s or something, currently 5s for debugging
 
-    let playlist = [];
-    let currentIndex = 0;
+    let playlist = []; // Master list (All photos currently in cache)
+    let queue = [];    // Current Playback Queue (The "Bag")
     let slideTimer = null;
+
+    /* --- HELPER: Fisher-Yates Shuffle --- */
+    function shuffle(array) {
+        let currentIndex = array.length, randomIndex;
+        while (currentIndex !== 0) {
+            randomIndex = Math.floor(Math.random() * currentIndex);
+            currentIndex--;
+            [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+        }
+        return array;
+    }
 
     /* --- 1. SERVICE WORKER --- */
     if ('serviceWorker' in navigator) {
@@ -80,7 +92,7 @@
             .catch(err => console.error('SW Failed', err));
     }
 
-    /* --- 2. SYNC ENGINE (Unchanged) --- */
+    /* --- 2. SYNC ENGINE --- */
     async function syncPhotos() {
         try {
             const response = await fetch(API_URL);
@@ -105,11 +117,12 @@
         }
     }
 
-    /* --- 3. PLAYLIST MANAGER (Unchanged) --- */
+    /* --- 3. PLAYLIST MANAGER --- */
     async function refreshPlaylistFromCache() {
         const cache = await caches.open(PHOTO_CACHE_NAME);
         const keys = await cache.keys();
         const newPlaylist = [];
+
         for (const request of keys) {
             const response = await cache.match(request);
             if (response) {
@@ -117,60 +130,61 @@
                 newPlaylist.push(URL.createObjectURL(blob));
             }
         }
+
         if (newPlaylist.length > 0) {
-            playlist = newPlaylist;
+            playlist = newPlaylist; // Update master list
+
+            // Remove loading msg if present
             const msg = document.getElementById('loading-msg');
             if (msg) msg.remove();
+
+            // If this is the first boot, kickstart the slideshow
             if (!slideTimer) startSlideshow();
         }
     }
 
-    /* --- 4. VISUAL PLAYER (Updated for True Cross-Fade) --- */
+    /* --- 4. VISUAL PLAYER (Queue Based) --- */
     function startSlideshow() {
         showNextSlide();
         slideTimer = setInterval(showNextSlide, SLIDE_DURATION);
     }
 
     function showNextSlide() {
-        if (playlist.length === 0) return;
+        // A. REFILL BAG: If the queue is empty, refill it from the master playlist and shuffle
+        if (queue.length === 0) {
+            if (playlist.length === 0) return; // Still no photos? Wait.
+
+            console.log("Loop complete. Refilling and shuffling queue...");
+            queue = [...playlist]; // Create a copy
+            shuffle(queue);        // Shuffle the copy
+        }
 
         const stage = document.getElementById('stage');
-
-        // 1. Find the currently active slide (the "Old" one)
         const oldSlide = stage.querySelector('.slide.active');
 
-        // 2. Prepare the "New" slide
-        const url = playlist[currentIndex];
+        // B. POP: Get the next photo from the shuffled queue
+        const url = queue.pop();
+
+        // Create the new image
         const newSlide = document.createElement('img');
         newSlide.src = url;
-        newSlide.className = 'slide'; // Starts with opacity: 0, z-index: 1
+        newSlide.className = 'slide';
         stage.appendChild(newSlide);
 
-        // Force reflow to ensure transition plays
+        // Force reflow
         void newSlide.offsetWidth;
 
-        // --- EXECUTE TRUE CROSS-FADE ---
-
-        // 3. Start fading IN the New slide
-        // Adds 'active' class -> opacity goes 0 to 1 over 1.5s
+        // C. ANIMATE
         newSlide.classList.add('active');
 
         if (oldSlide) {
-            // 4. Start fading OUT the Old slide simultaneously
-            // Removes 'active' class -> opacity goes 1 to 0 over 1.5s
             oldSlide.classList.remove('active');
-
-            // 5. Cleanup: Remove the old slide from DOM after transition finishes
-            // CSS transition is 1.5s, we wait 2s to be safe.
             setTimeout(() => {
                 if (oldSlide.parentNode === stage) {
                     stage.removeChild(oldSlide);
                 }
-            }, 2000);
+            }, 2000); // Wait for transition (1.5s) to finish
         }
-
-        // Advance Index
-        currentIndex = (currentIndex + 1) % playlist.length;
     }
 
     // --- BOOT ---
