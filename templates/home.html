@@ -13,7 +13,11 @@
                 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px;">
                     {% for frame in frames %}
                         <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                            <h3 style="margin-top: 0;">{{ frame.name }}</h3>
+                            <h3 style="margin-top: 0;">
+                                <a href="{% url 'frame_detail' frame.id %}" style="text-decoration: none; color: inherit;">
+                                    {{ frame.name }}
+                                </a>
+                            </h3>
                             <p style="color: #666; font-size: 0.9rem;">
                                 Created: {{ frame.created_at|date:"M d, Y" }}
                             </p>

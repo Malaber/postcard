@@ -18,6 +18,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import TemplateView
 from postcard import views as postcard_views
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -27,3 +29,7 @@ urlpatterns = [
     path('', postcard_views.home_view, name='home'),
     path('p/', include('postcard.urls')),
 ]
+
+# This serves media files (uploaded photos) during development (DEBUG=True)
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

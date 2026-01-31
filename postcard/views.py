@@ -1,29 +1,52 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_http_methods
+from django.contrib import messages
 from .models import Frame, Photo
 
 
 @login_required
+def frame_detail(request, frame_id):
+    """
+    Acts as the File Manager for a specific frame.
+    """
+    frame = get_object_or_404(Frame, id=frame_id, owner=request.user)
+    photos = frame.photos.all()  # Ordered by newest first (defined in Meta)
+
+    # Check for 'new' param in URL to highlight specific photos
+    new_ids = request.GET.get('new', '').split(',')
+
+    return render(request, 'frame_detail.html', {
+        'frame': frame,
+        'photos': photos,
+        'new_ids': new_ids
+    })
+
+
+@login_required
 def upload_view(request, frame_id):
-    # 1. Get the frame, but ONLY if the current user owns it
-    # This is a crucial security check!
     frame = get_object_or_404(Frame, id=frame_id, owner=request.user)
 
     if request.method == 'POST':
-        # 2. Get the list of files
         images = request.FILES.getlist('images')
+        new_photo_ids = []
 
-        # 3. Save each one
         for image in images:
-            Photo.objects.create(
+            photo = Photo.objects.create(
                 frame=frame,
                 image=image,
-                caption=""  # We can add caption logic later if needed
+                caption=""
             )
+            # Collect the ID (converted to string)
+            new_photo_ids.append(str(photo.id))
 
-        # 4. Success message or redirect
-        return redirect('home')
+        # Add a nice banner message
+        messages.success(request, f"Successfully uploaded {len(images)} photos.")
+
+        # Create a comma-separated string of IDs: "uuid1,uuid2,uuid3"
+        id_string = ",".join(new_photo_ids)
+
+        # Redirect to detail view with the query param
+        return redirect(f"/p/frame/{frame.id}/?new={id_string}")
 
     return render(request, 'upload.html', {'frame': frame})
 
