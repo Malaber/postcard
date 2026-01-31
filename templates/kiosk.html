@@ -4,119 +4,148 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ frame.name }}</title>
-    <link rel="manifest" href="/manifest.json"> <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; cursor: none; }
-        #stage { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
-        .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 2s ease-in-out; }
-        .slide.active { opacity: 1; }
-        #debug { position: absolute; bottom: 10px; right: 10px; color: #444; font-family: monospace; font-size: 12px; z-index: 100; }
+    <title>{{ frame.name }} - Player</title>
+    <style>
+        /* --- VISUAL STYLE (From your preferred version) --- */
+
+        /* Kiosk Reset */
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background-color: #000;
+            overflow: hidden; /* No scrollbars */
+            cursor: none; /* Hide mouse cursor */
+        }
+
+        /* The Container */
+        #stage {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* The Photos */
+        .slide {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: contain; /* Ensure whole photo is visible */
+            opacity: 0;
+            transition: opacity 1.5s ease-in-out; /* Smooth Fade */
+            z-index: 1; /* Default layer */
+        }
+
+        /* Class to show the active photo */
+        .slide.active {
+            opacity: 1;
+            z-index: 2; /* Bring to front */
+        }
+
+        /* Loading / Message State */
+        .message {
+            color: #555;
+            font-family: sans-serif;
+            text-align: center;
+            z-index: 10;
+        }
     </style>
 </head>
 <body>
 
 <div id="stage">
-    <h1 id="loading" style="color:white; font-family:sans-serif;">Loading Photos...</h1>
+    <div class="message" id="loading-msg">
+        <h1>Loading Photos...</h1>
+        <p>{{ frame.name }}</p>
+    </div>
 </div>
-<div id="debug"></div>
+
+<div id="debug" style="display:none;"></div>
 
 <script>
+    /* --- CONFIGURATION --- */
     const TOKEN = "{{ frame.access_token }}";
     const API_URL = `/p/frame/${TOKEN}/api/`;
     const PHOTO_CACHE_NAME = `frame-photos-${TOKEN}`;
     const SYNC_INTERVAL = 1000; // TODO Shorter interval if not DEBUG 60*1000 is 60 sec, use 300*1000
-    const SLIDE_DURATION = 10000;    // 10 seconds per slide
+    const SLIDE_DURATION = 5000;    // TODO set to 20s or something, currently 5s for debugging
 
-    let playlist = []; // List of Blob URLs (local files)
+    let playlist = []; // Holds Blob URLs
     let currentIndex = 0;
     let slideTimer = null;
 
-    // --- 1. Service Worker Registration (For Offline HTML) ---
+    /* --- 1. SERVICE WORKER (Offline Capability) --- */
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register("{% static 'sw.js' %}")
-            .then(reg => console.log('SW Registered'))
-            .catch(err => console.log('SW Failed', err));
+            .catch(err => console.error('SW Failed', err));
     }
 
-    // --- 2. The Sync Engine (The Brains) ---
+    /* --- 2. SYNC ENGINE (Download & Cache) --- */
     async function syncPhotos() {
-        log("Syncing...");
         try {
-            // A. Fetch the latest list from Server
+            // A. Get list from server
             const response = await fetch(API_URL);
-            if (!response.ok) throw new Error("Offline or Server Error");
+            if (!response.ok) throw new Error("Offline");
 
             const data = await response.json();
-            const serverUrls = data.photos; // List of strings: ["/media/...", "/media/..."]
+            const serverUrls = data.photos;
 
             // B. Open Cache
             const cache = await caches.open(PHOTO_CACHE_NAME);
             const cachedKeys = await cache.keys();
             const cachedUrls = cachedKeys.map(req => new URL(req.url).pathname);
 
-            // C. Download NEW photos
+            // C. Download New
             const toDownload = serverUrls.filter(url => !cachedUrls.includes(url));
-            if (toDownload.length > 0) log(`Downloading ${toDownload.length} new photos...`);
+            await Promise.all(toDownload.map(url => cache.add(url)));
 
-            await Promise.all(toDownload.map(async (url) => {
-                try {
-                    // Fetch and store in Cache API
-                    await cache.add(url);
-                } catch (e) {
-                    console.error("Failed to download", url, e);
-                }
-            }));
-
-            // D. Delete OLD photos (Cleanup)
+            // D. Delete Old
             const toDelete = cachedKeys.filter(req => !serverUrls.includes(new URL(req.url).pathname));
-            if (toDelete.length > 0) log(`Removing ${toDelete.length} old photos...`);
-
             await Promise.all(toDelete.map(req => cache.delete(req)));
 
-            // E. Update Playlist from Cache (This is what makes it work offline!)
-            // We reload the playlist from what is ACTUALLY on disk
+            // E. Refresh Playlist
             await refreshPlaylistFromCache();
 
         } catch (e) {
-            log(`Sync failed (${e.message}). Playing from offline cache.`);
-            // If internet is down, we just load whatever we have in cache
+            console.log("Sync failed (Offline mode active).");
             await refreshPlaylistFromCache();
         }
     }
 
-    // --- 3. Playlist Manager ---
+    /* --- 3. PLAYLIST MANAGER --- */
     async function refreshPlaylistFromCache() {
         const cache = await caches.open(PHOTO_CACHE_NAME);
         const keys = await cache.keys();
 
-        // Convert cache requests to Blob URLs for the <img> tags
-        // This is efficient and works without internet
+        // Convert cache files to Blob URLs
         const newPlaylist = [];
-
         for (const request of keys) {
             const response = await cache.match(request);
             if (response) {
                 const blob = await response.blob();
-                const objectUrl = URL.createObjectURL(blob);
-                newPlaylist.push(objectUrl);
+                newPlaylist.push(URL.createObjectURL(blob));
             }
         }
 
-        // Only update if we have photos
         if (newPlaylist.length > 0) {
             playlist = newPlaylist;
-            // Remove loading text if it exists
-            const loader = document.getElementById('loading');
-            if (loader) loader.remove();
 
-            // If slideshow isn't running, start it
+            // Remove loading text
+            const msg = document.getElementById('loading-msg');
+            if (msg) msg.remove();
+
+            // Start if not running
             if (!slideTimer) startSlideshow();
         }
     }
 
-    // --- 4. The Player (Visuals) ---
+    /* --- 4. VISUAL PLAYER (The Pretty Part) --- */
     function startSlideshow() {
+        // Show the first one immediately
         showNextSlide();
+        // Schedule the loop
         slideTimer = setInterval(showNextSlide, SLIDE_DURATION);
     }
 
@@ -124,49 +153,48 @@
         if (playlist.length === 0) return;
 
         const stage = document.getElementById('stage');
+        const url = playlist[currentIndex];
 
-        // Create new image element
+        // Create the new image
         const img = document.createElement('img');
-        img.src = playlist[currentIndex];
-        img.className = 'slide';
-
+        img.src = url;
+        img.className = 'slide'; // Starts with opacity: 0
         stage.appendChild(img);
 
-        // Trigger fade in (allow browser paint first)
-        requestAnimationFrame(() => {
-            img.classList.add('active');
-        });
+        // Force browser reflow so transition works
+        void img.offsetWidth;
 
-        // Clean up old images (keep DOM light)
-        const oldSlides = document.querySelectorAll('.slide:not(.active)');
-        if (oldSlides.length > 1) { // Keep the previous one behind for smooth transition
-             // Wait for transition to finish before removing
-             setTimeout(() => {
-                 // Remove the oldest one
-                 if(stage.children.length > 2) {
-                     stage.removeChild(stage.firstElementChild);
-                 }
-             }, 2000);
-        }
+        // Fade In
+        img.classList.add('active');
 
-        // Advance index
+        // Cleanup Logic:
+        // Find all other slides that are currently visible
+        const oldSlides = document.querySelectorAll('.slide:not(:last-child)');
+
+        // Wait for the fade-in (1.5s) to mostly finish before removing the old one
+        // This ensures no black gap between photos
+        setTimeout(() => {
+            oldSlides.forEach(el => {
+                // If we want a perfect cross-fade, we can remove the 'active' class
+                // from the old one now, triggering it to fade out while new one fades in.
+                el.classList.remove('active');
+
+                // Remove from DOM after transition finishes (1.5s + buffer)
+                setTimeout(() => el.remove(), 2000);
+            });
+        }, 1500); // Wait for new photo to be fully visible?
+        // Actually, for a smoother cross-fade, we usually overlap them.
+        // With CSS Absolute positioning, they are already on top of each other.
+        // The new one (z-index 2) fading in ON TOP of the old one is usually smoothest.
+
+        // Advance Index
         currentIndex = (currentIndex + 1) % playlist.length;
     }
 
-    function log(msg) {
-        const debug = document.getElementById('debug');
-        const time = new Date().toLocaleTimeString();
-        debug.innerText = `[${time}] ${msg}`;
-        console.log(msg);
-    }
-
-    // --- Boot Sequence ---
-    // 1. Initial Sync (Try to get new stuff)
+    // --- BOOT ---
     syncPhotos();
-
-    // 2. Schedule periodic Sync (Every 60s)
     setInterval(syncPhotos, SYNC_INTERVAL);
-
 </script>
+
 </body>
 </html>
