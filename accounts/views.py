@@ -53,19 +53,15 @@ def register_options(request):
 
 @csrf_exempt
 def register_verify(request):
-    """
-    Step 2: The frontend sends back the signed challenge.
-    """
     try:
         data = json.loads(request.body)
         username = data.get('username')
 
-        # Retrieve challenge from session
         challenge_b64 = request.session.get('challenge')
         if not challenge_b64:
-            return HttpResponseBadRequest("No challenge found in session")
+            # Change this to JSON
+            return JsonResponse({"status": "error", "message": "No challenge found in session"}, status=400)
 
-        # Verify the signature
         verification = verify_registration_response(
             credential=data,
             expected_challenge=base64url_to_bytes(challenge_b64),
@@ -73,13 +69,9 @@ def register_verify(request):
             expected_rp_id=RP_ID,
         )
 
-        # --- Verification Successful ---
-
-        # 1. Create User
+        # ... user creation logic (keep as is) ...
         user = User.objects.create(username=username)
 
-        # 2. Save Passkey
-        # Note: verification.credential_id is bytes. We must convert to String for DB.
         PasskeyCredential.objects.create(
             user=user,
             credential_id=bytes_to_base64url(verification.credential_id),
@@ -89,14 +81,13 @@ def register_verify(request):
             name="Primary Passkey"
         )
 
-        # 3. Log the user in
         login(request, user)
-
-        # Cleanup session
         del request.session['challenge']
 
         return JsonResponse({"status": "ok", "user": username})
 
     except Exception as e:
-        print(f"VERIFY ERROR: {e}")
-        return HttpResponseBadRequest(f"Verification failed: {e}")
+        # 1. Print error to server console
+        print(f"!!! VERIFICATION ERROR: {e}")
+        # 2. Return JSON so frontend can display it
+        return JsonResponse({"status": "error", "message": str(e)}, status=400)

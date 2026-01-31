@@ -73,12 +73,14 @@
                 body: JSON.stringify(credentialJSON)
             });
 
+            // Always parse JSON first
             const result = await verifyRes.json();
 
             if (verifyRes.ok) {
                 status.innerHTML = `<span class='success'>Success! Welcome, ${result.user}.</span>`;
             } else {
-                throw new Error("Verification failed on server.");
+                // Now we can show the real error message from the server
+                throw new Error(result.message || "Unknown server error");
             }
 
         } catch (e) {
