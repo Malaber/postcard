@@ -16,7 +16,10 @@ from webauthn.helpers import bytes_to_base64url
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
     UserVerificationRequirement,
+    PublicKeyCredentialDescriptor,
+    PublicKeyCredentialType,
 )
+
 
 from .models import User, PasskeyCredential
 from .utils import RP_ID, RP_NAME, ORIGIN
@@ -105,19 +108,24 @@ def login_options(request):
     except User.DoesNotExist:
         return HttpResponseBadRequest("User not found")
 
-    # Get the user's registered passkeys
     passkeys = PasskeyCredential.objects.filter(user=user)
     if not passkeys.exists():
         return HttpResponseBadRequest("No passkeys found for this user")
 
-    # Generate the challenge
+    # --- FIX START ---
+    # We must use the class 'PublicKeyCredentialDescriptor', not a dictionary!
+    allow_credentials = [
+        PublicKeyCredentialDescriptor(
+            id=base64url_to_bytes(pk.credential_id),
+            type=PublicKeyCredentialType.PUBLIC_KEY
+        )
+        for pk in passkeys
+    ]
+    # --- FIX END ---
+
     options = generate_authentication_options(
         rp_id=RP_ID,
-        # Allow only credentials that belong to this user
-        allow_credentials=[
-            {"id": base64url_to_bytes(pk.credential_id), "type": "public-key"}
-            for pk in passkeys
-        ],
+        allow_credentials=allow_credentials,  # Pass the list of objects here
     )
 
     request.session['challenge'] = bytes_to_base64url(options.challenge)
