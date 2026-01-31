@@ -121,3 +121,20 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 AUTH_USER_MODEL = 'accounts.User'
+
+# --- Session Security & Lifetime Settings ---
+
+# 1. How long the session lasts (in seconds)
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 7 Days
+
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+
+# 3. Security Hardening (Best Practices)
+# Only send cookie over HTTPS (Enable this later when you deploy to Production!)
+# SESSION_COOKIE_SECURE = True # TODO
+
+# Prevent JavaScript from reading the cookie (Mitigates XSS attacks)
+SESSION_COOKIE_HTTPONLY = True
+
+# SameSite policy (Lax is good for normal navigation)
+SESSION_COOKIE_SAMESITE = 'Lax'
