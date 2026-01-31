@@ -17,11 +17,12 @@
 
         <div style="display: flex; gap: 10px; justify-content: center; margin-top: 25px;">
             <a href="{% url 'frame_detail' photo.frame.id %}"
-               style="padding: 10px 20px; background: #f3f4f6; color: #333; text-decoration: none; border-radius: 6px; font-weight: bold;">
+               style="padding: 10px 20px; background: #f3f4f6; color: #333; text-decoration: none; border-radius: 6px; font-weight: bold; line-height: 1.5;">
                Cancel
             </a>
 
             <button type="submit"
+                    autofocus
                     style="padding: 10px 20px; background: #dc2626; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 1rem;">
                 Yes, Delete it
             </button>
