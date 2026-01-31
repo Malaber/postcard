@@ -1,25 +1,31 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Passkey Registrierung</title>
-    <script src="https://unpkg.com/@github/webauthn-json@2.1.1/dist/browser-global/index.js"></script>
+    <title>Passkey Registration</title>
+    <script src="https://cdn.jsdelivr.net/npm/@github/webauthn-json@2.1.1/dist/browser-global/index.js"></script>
     <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; padding-top: 50px; }
-        .card { border: 1px solid #ccc; padding: 20px; border-radius: 8px; width: 300px; }
-        input { width: 100%; padding: 8px; margin: 10px 0; box-sizing: border-box; }
-        button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        #status { margin-top: 10px; font-size: 0.9em; color: #666; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; padding-top: 50px; background-color: #f4f4f9; }
+        .card { background: white; border: 1px solid #ddd; padding: 2rem; border-radius: 12px; width: 320px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { margin-top: 0; color: #333; }
+        input { width: 100%; padding: 10px; margin: 15px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; }
+        button { width: 100%; padding: 12px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 1rem; }
+        button:hover { background: #1d4ed8; }
+        #status { margin-top: 15px; font-size: 0.9em; min-height: 1.2em; }
+        .error { color: #dc2626; }
+        .success { color: #16a34a; }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <h2>Registrieren</h2>
-    <input type="text" id="username" placeholder="Dein Name (z.B. Oma)" />
-    <button onclick="registerUser()">Passkey erstellen</button>
+    <h2>Create Account</h2>
+    <p>Register using FaceID, TouchID, or Windows Hello.</p>
+
+    <input type="text" id="username" placeholder="Username (e.g. Grandma)" />
+    <button onclick="registerUser()">Create Passkey</button>
+
     <div id="status"></div>
 </div>
 
@@ -28,26 +34,35 @@
         const username = document.getElementById('username').value;
         const status = document.getElementById('status');
 
+        // Check if library loaded correctly
+        if (typeof webauthnJSON === 'undefined') {
+            status.innerHTML = "<span class='error'>Error: WebAuthn library not loaded. Check internet connection.</span>";
+            return;
+        }
+
         if (!username) {
-            status.innerText = "Bitte Namen eingeben!";
+            status.innerHTML = "<span class='error'>Please enter a username!</span>";
             return;
         }
 
         try {
-            status.innerText = "Starte Fingerabdruck-Scan...";
+            status.innerHTML = "Requesting challenge...";
 
-            // 1. Optionen vom Server holen (Challenge)
-            const optionsRes = await fetch(`/auth/register/options/?username=${username}`);
+            // 1. Get Options (Challenge) from Server
+            const optionsRes = await fetch(`/auth/register/options/?username=${encodeURIComponent(username)}`);
             if (!optionsRes.ok) throw new Error(await optionsRes.text());
 
-            // Das Backend liefert JSON, wir parsen es
             const options = await optionsRes.json();
 
-            // 2. Browser auffordern, Passkey zu erstellen
-            // webauthnJSON.create() macht die Magie: JSON -> Binary -> Browser -> Binary -> JSON
+            status.innerHTML = "Waiting for fingerprint/face scan...";
+
+            // 2. Perform the Ceremony (Browser -> Hardware)
+            // The library converts the Base64URL JSON strings to binary for the browser
             const credential = await webauthnJSON.create({ publicKey: options });
 
-            // 3. Ergebnis zurück an den Server schicken
+            // 3. Send signed result back to Server
+            status.innerHTML = "Verifying...";
+
             const verifyRes = await fetch('/auth/register/verify/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -57,16 +72,14 @@
             const result = await verifyRes.json();
 
             if (verifyRes.ok) {
-                status.innerText = `Erfolg! Hallo ${result.user}. Du bist jetzt eingeloggt.`;
-                status.style.color = "green";
+                status.innerHTML = `<span class='success'>Success! Welcome, ${result.user}. You are now logged in.</span>`;
             } else {
-                throw new Error("Verifikation fehlgeschlagen");
+                throw new Error("Verification failed on server.");
             }
 
         } catch (e) {
             console.error(e);
-            status.innerText = `Fehler: ${e.message}`;
-            status.style.color = "red";
+            status.innerHTML = `<span class='error'>Error: ${e.message}</span>`;
         }
     }
 </script>
