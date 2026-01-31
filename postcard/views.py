@@ -51,6 +51,23 @@ def upload_view(request, frame_id):
     return render(request, 'upload.html', {'frame': frame})
 
 
+def frame_kiosk(request, token):
+    """
+    Public view for the physical frame.
+    Access is controlled ONLY by the secret token.
+    """
+    # 1. Look up frame by the secret token
+    frame = get_object_or_404(Frame, access_token=token)
+
+    # 2. Get all photos (oldest first for chronological order, or random?)
+    # Let's do newest first for now, or you can shuffle in JS
+    photos = frame.photos.all()
+
+    return render(request, 'kiosk.html', {
+        'frame': frame,
+        'photos': photos,
+    })
+
 def home_view(request):
     context = {}
 

@@ -44,9 +44,8 @@ class Frame(models.Model):
         return f"{self.name} ({self.owner.username})"
 
     def get_viewer_url(self):
-        # Helper to generate the full secret link
-        return f"/frame/{self.access_token}/"
-
+        # Update this to match the /p/ prefix we defined in config/urls.py
+        return f"/p/frame/{self.access_token}/player/" # TODO use django.url here
 
 class Photo(models.Model):
     """

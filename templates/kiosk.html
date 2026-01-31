@@ -1,0 +1,95 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ frame.name }} - Player</title>
+    <style>
+        /* Kiosk Reset */
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background-color: #000;
+            overflow: hidden; /* No scrollbars */
+            cursor: none; /* Hide mouse cursor */
+        }
+
+        /* The Container */
+        #stage {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* The Photos */
+        .slide {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: contain; /* Ensure whole photo is visible */
+            opacity: 0;
+            transition: opacity 1.5s ease-in-out; /* Smooth Fade */
+        }
+
+        /* Class to show the active photo */
+        .slide.active {
+            opacity: 1;
+        }
+
+        /* Loading / Empty State */
+        .message {
+            color: #555;
+            font-family: sans-serif;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div id="stage">
+    {% if photos %}
+        {% for photo in photos %}
+            <img src="{{ photo.image.url }}" class="slide" data-index="{{ forloop.counter0 }}">
+        {% endfor %}
+    {% else %}
+        <div class="message">
+            <h1>Waiting for photos...</h1>
+            <p>Upload photos to: {{ frame.name }}</p>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", () => {
+        const slides = document.querySelectorAll('.slide');
+        if (slides.length === 0) return;
+
+        let currentIndex = 0;
+        const intervalTime = 10000; // 10 Seconds per photo
+
+        // 1. Show first image immediately
+        slides[0].classList.add('active');
+
+        // 2. Start the loop
+        setInterval(() => {
+            // Remove active class from current
+            slides[currentIndex].classList.remove('active');
+
+            // Move to next (loop back to 0 at the end)
+            currentIndex = (currentIndex + 1) % slides.length;
+
+            // Add active class to next
+            slides[currentIndex].classList.add('active');
+        }, intervalTime);
+    });
+
+    // Optional: Reload page every hour to fetch new photos?
+    // setTimeout(() => window.location.reload(), 3600000);
+</script>
+
+</body>
+</html>
