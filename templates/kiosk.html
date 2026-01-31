@@ -6,15 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ frame.name }} - Player</title>
     <style>
-        /* --- VISUAL STYLE (From your preferred version) --- */
+        /* --- VISUAL STYLE --- */
 
         /* Kiosk Reset */
         body, html {
             margin: 0; padding: 0;
             width: 100%; height: 100%;
-            background-color: #000;
-            overflow: hidden; /* No scrollbars */
-            cursor: none; /* Hide mouse cursor */
+            background-color: #000; /* Black background is crucial for cross-fade */
+            overflow: hidden;
+            cursor: none;
         }
 
         /* The Container */
@@ -32,16 +32,16 @@
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
-            object-fit: contain; /* Ensure whole photo is visible */
-            opacity: 0;
-            transition: opacity 1.5s ease-in-out; /* Smooth Fade */
-            z-index: 1; /* Default layer */
+            object-fit: contain; /* Keep the pretty "no crop" look */
+            opacity: 0; /* Default state is invisible */
+            transition: opacity 1.5s ease-in-out; /* Smooth Fade duration */
+            z-index: 1;
         }
 
         /* Class to show the active photo */
         .slide.active {
-            opacity: 1;
-            z-index: 2; /* Bring to front */
+            opacity: 1; /* Fades in when added */
+            z-index: 2; /* Ensures the incoming photo is visually on top */
         }
 
         /* Loading / Message State */
@@ -62,8 +62,6 @@
     </div>
 </div>
 
-<div id="debug" style="display:none;"></div>
-
 <script>
     /* --- CONFIGURATION --- */
     const TOKEN = "{{ frame.access_token }}";
@@ -72,54 +70,45 @@
     const SYNC_INTERVAL = 1000; // TODO Shorter interval if not DEBUG 60*1000 is 60 sec, use 300*1000
     const SLIDE_DURATION = 5000;    // TODO set to 20s or something, currently 5s for debugging
 
-    let playlist = []; // Holds Blob URLs
+    let playlist = [];
     let currentIndex = 0;
     let slideTimer = null;
 
-    /* --- 1. SERVICE WORKER (Offline Capability) --- */
+    /* --- 1. SERVICE WORKER --- */
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register("{% static 'sw.js' %}")
             .catch(err => console.error('SW Failed', err));
     }
 
-    /* --- 2. SYNC ENGINE (Download & Cache) --- */
+    /* --- 2. SYNC ENGINE (Unchanged) --- */
     async function syncPhotos() {
         try {
-            // A. Get list from server
             const response = await fetch(API_URL);
             if (!response.ok) throw new Error("Offline");
-
             const data = await response.json();
             const serverUrls = data.photos;
 
-            // B. Open Cache
             const cache = await caches.open(PHOTO_CACHE_NAME);
             const cachedKeys = await cache.keys();
             const cachedUrls = cachedKeys.map(req => new URL(req.url).pathname);
 
-            // C. Download New
             const toDownload = serverUrls.filter(url => !cachedUrls.includes(url));
             await Promise.all(toDownload.map(url => cache.add(url)));
 
-            // D. Delete Old
             const toDelete = cachedKeys.filter(req => !serverUrls.includes(new URL(req.url).pathname));
             await Promise.all(toDelete.map(req => cache.delete(req)));
 
-            // E. Refresh Playlist
             await refreshPlaylistFromCache();
-
         } catch (e) {
-            console.log("Sync failed (Offline mode active).");
+            // console.log("Sync failed (Offline mode).");
             await refreshPlaylistFromCache();
         }
     }
 
-    /* --- 3. PLAYLIST MANAGER --- */
+    /* --- 3. PLAYLIST MANAGER (Unchanged) --- */
     async function refreshPlaylistFromCache() {
         const cache = await caches.open(PHOTO_CACHE_NAME);
         const keys = await cache.keys();
-
-        // Convert cache files to Blob URLs
         const newPlaylist = [];
         for (const request of keys) {
             const response = await cache.match(request);
@@ -128,24 +117,17 @@
                 newPlaylist.push(URL.createObjectURL(blob));
             }
         }
-
         if (newPlaylist.length > 0) {
             playlist = newPlaylist;
-
-            // Remove loading text
             const msg = document.getElementById('loading-msg');
             if (msg) msg.remove();
-
-            // Start if not running
             if (!slideTimer) startSlideshow();
         }
     }
 
-    /* --- 4. VISUAL PLAYER (The Pretty Part) --- */
+    /* --- 4. VISUAL PLAYER (Updated for True Cross-Fade) --- */
     function startSlideshow() {
-        // Show the first one immediately
         showNextSlide();
-        // Schedule the loop
         slideTimer = setInterval(showNextSlide, SLIDE_DURATION);
     }
 
@@ -153,39 +135,39 @@
         if (playlist.length === 0) return;
 
         const stage = document.getElementById('stage');
+
+        // 1. Find the currently active slide (the "Old" one)
+        const oldSlide = stage.querySelector('.slide.active');
+
+        // 2. Prepare the "New" slide
         const url = playlist[currentIndex];
+        const newSlide = document.createElement('img');
+        newSlide.src = url;
+        newSlide.className = 'slide'; // Starts with opacity: 0, z-index: 1
+        stage.appendChild(newSlide);
 
-        // Create the new image
-        const img = document.createElement('img');
-        img.src = url;
-        img.className = 'slide'; // Starts with opacity: 0
-        stage.appendChild(img);
+        // Force reflow to ensure transition plays
+        void newSlide.offsetWidth;
 
-        // Force browser reflow so transition works
-        void img.offsetWidth;
+        // --- EXECUTE TRUE CROSS-FADE ---
 
-        // Fade In
-        img.classList.add('active');
+        // 3. Start fading IN the New slide
+        // Adds 'active' class -> opacity goes 0 to 1 over 1.5s
+        newSlide.classList.add('active');
 
-        // Cleanup Logic:
-        // Find all other slides that are currently visible
-        const oldSlides = document.querySelectorAll('.slide:not(:last-child)');
+        if (oldSlide) {
+            // 4. Start fading OUT the Old slide simultaneously
+            // Removes 'active' class -> opacity goes 1 to 0 over 1.5s
+            oldSlide.classList.remove('active');
 
-        // Wait for the fade-in (1.5s) to mostly finish before removing the old one
-        // This ensures no black gap between photos
-        setTimeout(() => {
-            oldSlides.forEach(el => {
-                // If we want a perfect cross-fade, we can remove the 'active' class
-                // from the old one now, triggering it to fade out while new one fades in.
-                el.classList.remove('active');
-
-                // Remove from DOM after transition finishes (1.5s + buffer)
-                setTimeout(() => el.remove(), 2000);
-            });
-        }, 1500); // Wait for new photo to be fully visible?
-        // Actually, for a smoother cross-fade, we usually overlap them.
-        // With CSS Absolute positioning, they are already on top of each other.
-        // The new one (z-index 2) fading in ON TOP of the old one is usually smoothest.
+            // 5. Cleanup: Remove the old slide from DOM after transition finishes
+            // CSS transition is 1.5s, we wait 2s to be safe.
+            setTimeout(() => {
+                if (oldSlide.parentNode === stage) {
+                    stage.removeChild(oldSlide);
+                }
+            }, 2000);
+        }
 
         // Advance Index
         currentIndex = (currentIndex + 1) % playlist.length;
