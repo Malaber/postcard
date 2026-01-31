@@ -4,92 +4,169 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ frame.name }} - Player</title>
-    <style>
-        /* Kiosk Reset */
-        body, html {
-            margin: 0; padding: 0;
-            width: 100%; height: 100%;
-            background-color: #000;
-            overflow: hidden; /* No scrollbars */
-            cursor: none; /* Hide mouse cursor */
-        }
-
-        /* The Container */
-        #stage {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        /* The Photos */
-        .slide {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            object-fit: contain; /* Ensure whole photo is visible */
-            opacity: 0;
-            transition: opacity 1.5s ease-in-out; /* Smooth Fade */
-        }
-
-        /* Class to show the active photo */
-        .slide.active {
-            opacity: 1;
-        }
-
-        /* Loading / Empty State */
-        .message {
-            color: #555;
-            font-family: sans-serif;
-            text-align: center;
-        }
+    <title>{{ frame.name }}</title>
+    <link rel="manifest" href="/manifest.json"> <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; cursor: none; }
+        #stage { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 2s ease-in-out; }
+        .slide.active { opacity: 1; }
+        #debug { position: absolute; bottom: 10px; right: 10px; color: #444; font-family: monospace; font-size: 12px; z-index: 100; }
     </style>
 </head>
 <body>
 
 <div id="stage">
-    {% if photos %}
-        {% for photo in photos %}
-            <img src="{{ photo.image.url }}" class="slide" data-index="{{ forloop.counter0 }}">
-        {% endfor %}
-    {% else %}
-        <div class="message">
-            <h1>Waiting for photos...</h1>
-            <p>Upload photos to: {{ frame.name }}</p>
-        </div>
-    {% endif %}
+    <h1 id="loading" style="color:white; font-family:sans-serif;">Loading Photos...</h1>
 </div>
+<div id="debug"></div>
 
 <script>
-    document.addEventListener("DOMContentLoaded", () => {
-        const slides = document.querySelectorAll('.slide');
-        if (slides.length === 0) return;
+    const TOKEN = "{{ frame.access_token }}";
+    const API_URL = `/p/frame/${TOKEN}/api/`;
+    const PHOTO_CACHE_NAME = `frame-photos-${TOKEN}`;
+    const SYNC_INTERVAL = 1000; // TODO Shorter interval if not DEBUG 60*1000 is 60 sec, use 300*1000
+    const SLIDE_DURATION = 10000;    // 10 seconds per slide
 
-        let currentIndex = 0;
-        const intervalTime = 10000; // 10 Seconds per photo
+    let playlist = []; // List of Blob URLs (local files)
+    let currentIndex = 0;
+    let slideTimer = null;
 
-        // 1. Show first image immediately
-        slides[0].classList.add('active');
+    // --- 1. Service Worker Registration (For Offline HTML) ---
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register("{% static 'sw.js' %}")
+            .then(reg => console.log('SW Registered'))
+            .catch(err => console.log('SW Failed', err));
+    }
 
-        // 2. Start the loop
-        setInterval(() => {
-            // Remove active class from current
-            slides[currentIndex].classList.remove('active');
+    // --- 2. The Sync Engine (The Brains) ---
+    async function syncPhotos() {
+        log("Syncing...");
+        try {
+            // A. Fetch the latest list from Server
+            const response = await fetch(API_URL);
+            if (!response.ok) throw new Error("Offline or Server Error");
 
-            // Move to next (loop back to 0 at the end)
-            currentIndex = (currentIndex + 1) % slides.length;
+            const data = await response.json();
+            const serverUrls = data.photos; // List of strings: ["/media/...", "/media/..."]
 
-            // Add active class to next
-            slides[currentIndex].classList.add('active');
-        }, intervalTime);
-    });
+            // B. Open Cache
+            const cache = await caches.open(PHOTO_CACHE_NAME);
+            const cachedKeys = await cache.keys();
+            const cachedUrls = cachedKeys.map(req => new URL(req.url).pathname);
 
-    // Optional: Reload page every hour to fetch new photos?
-    // setTimeout(() => window.location.reload(), 3600000);
+            // C. Download NEW photos
+            const toDownload = serverUrls.filter(url => !cachedUrls.includes(url));
+            if (toDownload.length > 0) log(`Downloading ${toDownload.length} new photos...`);
+
+            await Promise.all(toDownload.map(async (url) => {
+                try {
+                    // Fetch and store in Cache API
+                    await cache.add(url);
+                } catch (e) {
+                    console.error("Failed to download", url, e);
+                }
+            }));
+
+            // D. Delete OLD photos (Cleanup)
+            const toDelete = cachedKeys.filter(req => !serverUrls.includes(new URL(req.url).pathname));
+            if (toDelete.length > 0) log(`Removing ${toDelete.length} old photos...`);
+
+            await Promise.all(toDelete.map(req => cache.delete(req)));
+
+            // E. Update Playlist from Cache (This is what makes it work offline!)
+            // We reload the playlist from what is ACTUALLY on disk
+            await refreshPlaylistFromCache();
+
+        } catch (e) {
+            log(`Sync failed (${e.message}). Playing from offline cache.`);
+            // If internet is down, we just load whatever we have in cache
+            await refreshPlaylistFromCache();
+        }
+    }
+
+    // --- 3. Playlist Manager ---
+    async function refreshPlaylistFromCache() {
+        const cache = await caches.open(PHOTO_CACHE_NAME);
+        const keys = await cache.keys();
+
+        // Convert cache requests to Blob URLs for the <img> tags
+        // This is efficient and works without internet
+        const newPlaylist = [];
+
+        for (const request of keys) {
+            const response = await cache.match(request);
+            if (response) {
+                const blob = await response.blob();
+                const objectUrl = URL.createObjectURL(blob);
+                newPlaylist.push(objectUrl);
+            }
+        }
+
+        // Only update if we have photos
+        if (newPlaylist.length > 0) {
+            playlist = newPlaylist;
+            // Remove loading text if it exists
+            const loader = document.getElementById('loading');
+            if (loader) loader.remove();
+
+            // If slideshow isn't running, start it
+            if (!slideTimer) startSlideshow();
+        }
+    }
+
+    // --- 4. The Player (Visuals) ---
+    function startSlideshow() {
+        showNextSlide();
+        slideTimer = setInterval(showNextSlide, SLIDE_DURATION);
+    }
+
+    function showNextSlide() {
+        if (playlist.length === 0) return;
+
+        const stage = document.getElementById('stage');
+
+        // Create new image element
+        const img = document.createElement('img');
+        img.src = playlist[currentIndex];
+        img.className = 'slide';
+
+        stage.appendChild(img);
+
+        // Trigger fade in (allow browser paint first)
+        requestAnimationFrame(() => {
+            img.classList.add('active');
+        });
+
+        // Clean up old images (keep DOM light)
+        const oldSlides = document.querySelectorAll('.slide:not(.active)');
+        if (oldSlides.length > 1) { // Keep the previous one behind for smooth transition
+             // Wait for transition to finish before removing
+             setTimeout(() => {
+                 // Remove the oldest one
+                 if(stage.children.length > 2) {
+                     stage.removeChild(stage.firstElementChild);
+                 }
+             }, 2000);
+        }
+
+        // Advance index
+        currentIndex = (currentIndex + 1) % playlist.length;
+    }
+
+    function log(msg) {
+        const debug = document.getElementById('debug');
+        const time = new Date().toLocaleTimeString();
+        debug.innerText = `[${time}] ${msg}`;
+        console.log(msg);
+    }
+
+    // --- Boot Sequence ---
+    // 1. Initial Sync (Try to get new stuff)
+    syncPhotos();
+
+    // 2. Schedule periodic Sync (Every 60s)
+    setInterval(syncPhotos, SYNC_INTERVAL);
+
 </script>
-
 </body>
 </html>

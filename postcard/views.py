@@ -1,6 +1,8 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.http import JsonResponse
+
 from .models import Frame, Photo
 
 
@@ -59,14 +61,24 @@ def frame_kiosk(request, token):
     # 1. Look up frame by the secret token
     frame = get_object_or_404(Frame, access_token=token)
 
-    # 2. Get all photos (oldest first for chronological order, or random?)
-    # Let's do newest first for now, or you can shuffle in JS
-    photos = frame.photos.all()
-
     return render(request, 'kiosk.html', {
         'frame': frame,
-        'photos': photos,
     })
+
+
+def frame_photos_json(request, token):
+    """
+    API: Returns a JSON list of all photo URLs for this frame.
+    Used by the Kiosk JS to sync its local cache.
+    """
+    frame = get_object_or_404(Frame, access_token=token)
+    photos = frame.photos.all()
+
+    data = {
+        "name": frame.name,
+        "photos": [p.image.url for p in photos]
+    }
+    return JsonResponse(data)
 
 def home_view(request):
     context = {}
