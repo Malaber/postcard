@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <div style="text-align: center; margin-top: 50px;">
+        {% if user.is_authenticated %}
+            <h1>Your Picture Frames</h1>
+            <p>You don't have any frames yet.</p>
+            <button style="padding: 10px 20px; font-size: 1rem; margin-top: 20px;">+ Create New Frame</button>
+        {% else %}
+            <h1>Welcome to Postcard</h1>
+            <p>The secure way to send photos to your family's digital frames.</p>
+            <div style="margin-top: 30px;">
+                <a href="{% url 'login_page' %}" class="btn-primary" style="font-size: 1.2rem; padding: 12px 24px;">Login with Passkey</a>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

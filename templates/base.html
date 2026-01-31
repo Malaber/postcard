@@ -1,0 +1,47 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Postcard Server</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; margin: 0; background-color: #f4f4f9; }
+
+        /* Navbar Styles */
+        nav { background: #fff; border-bottom: 1px solid #ddd; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .brand { font-weight: bold; font-size: 1.2rem; color: #2563eb; text-decoration: none; }
+        .user-menu { display: flex; gap: 15px; align-items: center; }
+        .btn-nav { text-decoration: none; color: #555; font-size: 0.9rem; }
+        .btn-nav:hover { color: #000; }
+        .btn-primary { background: #2563eb; color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; }
+
+        /* Main Content */
+        main { padding: 2rem; max-width: 800px; margin: 0 auto; }
+    </style>
+</head>
+<body>
+
+<nav>
+    <a href="/" class="brand">Postcard 🖼️</a>
+
+    <div class="user-menu">
+        {% if user.is_authenticated %}
+            <span>👋 Hi, <strong>{{ user.username }}</strong></span>
+            <form action="{% url 'logout' %}" method="post" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" style="background:none; border:none; cursor:pointer; color:#dc2626;">Logout</button>
+            </form>
+        {% else %}
+            <a href="{% url 'login_page' %}" class="btn-nav">Login</a>
+            <a href="{% url 'register_page' %}" class="btn-primary">Sign Up</a>
+        {% endif %}
+    </div>
+</nav>
+
+<main>
+    {% block content %}{% endblock %}
+</main>
+
+</body>
+</html>

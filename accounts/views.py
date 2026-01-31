@@ -3,10 +3,12 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import login
 
-# WebAuthn imports
 from webauthn import (
     generate_registration_options,
     verify_registration_response,
+    generate_authentication_options,
+    verify_authentication_response,
+
     options_to_json,
     base64url_to_bytes,
 )
@@ -90,4 +92,80 @@ def register_verify(request):
         # 1. Print error to server console
         print(f"!!! VERIFICATION ERROR: {e}")
         # 2. Return JSON so frontend can display it
+        return JsonResponse({"status": "error", "message": str(e)}, status=400)
+
+
+def login_options(request):
+    username = request.GET.get('username')
+    if not username:
+        return HttpResponseBadRequest("Username missing")
+
+    try:
+        user = User.objects.get(username=username)
+    except User.DoesNotExist:
+        return HttpResponseBadRequest("User not found")
+
+    # Get the user's registered passkeys
+    passkeys = PasskeyCredential.objects.filter(user=user)
+    if not passkeys.exists():
+        return HttpResponseBadRequest("No passkeys found for this user")
+
+    # Generate the challenge
+    options = generate_authentication_options(
+        rp_id=RP_ID,
+        # Allow only credentials that belong to this user
+        allow_credentials=[
+            {"id": base64url_to_bytes(pk.credential_id), "type": "public-key"}
+            for pk in passkeys
+        ],
+    )
+
+    request.session['challenge'] = bytes_to_base64url(options.challenge)
+
+    return JsonResponse(json.loads(options_to_json(options)))
+
+
+@csrf_exempt
+def login_verify(request):
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+
+        # 1. Get User
+        user = User.objects.get(username=username)
+
+        # 2. Find the specific credential used (by ID)
+        credential_id = data.get('id')
+        passkey_record = PasskeyCredential.objects.get(credential_id=credential_id, user=user)
+
+        # 3. Retrieve challenge
+        challenge_b64 = request.session.get('challenge')
+        if not challenge_b64:
+            return JsonResponse({"status": "error", "message": "No challenge in session"}, status=400)
+
+        # 4. Verify Signature
+        verify_authentication_response(
+            credential=data,
+            expected_challenge=base64url_to_bytes(challenge_b64),
+            expected_origin=ORIGIN,
+            expected_rp_id=RP_ID,
+            credential_public_key=base64url_to_bytes(passkey_record.public_key),
+            credential_current_sign_count=passkey_record.sign_count
+        )
+
+        # 5. Update Sign Count (prevent replay attacks)
+        # Note: Some authenticators (like iCloud Keychain) don't increment this, which is fine.
+        new_sign_count = data.get('response', {}).get('authenticatorData', {}).get('signCount')
+        if new_sign_count:
+            passkey_record.sign_count = new_sign_count
+            passkey_record.save()
+
+        # 6. Log In
+        login(request, user)
+        del request.session['challenge']
+
+        return JsonResponse({"status": "ok", "user": username})
+
+    except Exception as e:
+        print(f"LOGIN ERROR: {e}")
         return JsonResponse({"status": "error", "message": str(e)}, status=400)
