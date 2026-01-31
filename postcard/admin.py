@@ -8,4 +8,4 @@ class FrameAdmin(admin.ModelAdmin):
 
 @admin.register(Photo)
 class PhotoAdmin(admin.ModelAdmin):
-    list_display = ('frame', 'caption', 'uploaded_at')
+    list_display = ('frame', 'caption', 'created_at')

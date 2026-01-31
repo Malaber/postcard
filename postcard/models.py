@@ -54,6 +54,7 @@ class Photo(models.Model):
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     frame = models.ForeignKey(Frame, on_delete=models.CASCADE, related_name='photos')
+    is_active = models.BooleanField(default=True) # Soft-Delete
 
     # The actual image file
     image = models.ImageField(upload_to=get_file_path)
@@ -61,12 +62,12 @@ class Photo(models.Model):
     # Optional message from the uploader
     caption = models.CharField(max_length=255, blank=True)
 
-    uploaded_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     # Orientation/Aspect ratio metadata could go here later
 
     class Meta:
-        ordering = ['-uploaded_at']  # Newest first
+        ordering = ['-created_at']  # Newest first
 
     def __str__(self):
-        return f"Photo for {self.frame.name} ({self.uploaded_at.date()})"
+        return f"Photo for {self.frame.name} ({self.created_at.date()})"
