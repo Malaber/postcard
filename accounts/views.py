@@ -11,7 +11,6 @@ from webauthn import (
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
     UserVerificationRequirement,
-    RegistrationCredentialSource,
 )
 
 from .models import User, PasskeyCredential
