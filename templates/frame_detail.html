@@ -67,7 +67,13 @@
                     <img src="{{ photo.image.url }}" class="photo-img" loading="lazy">
                     <div class="photo-meta">
                         <span>{{ photo.created_at|date:"M d" }}</span>
-                        <span style="color: #ccc;">🗑️</span>
+                        <a href="{% url 'photo_delete' photo.id %}"
+                           style="text-decoration: none; filter: grayscale(100%); transition: filter 0.2s;"
+                           onmouseover="this.style.filter='none'"
+                           onmouseout="this.style.filter='grayscale(100%)'"
+                           title="Delete Photo">
+                            🗑️
+                        </a>
                     </div>
                 </div>
             {% endfor %}

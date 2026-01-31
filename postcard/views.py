@@ -3,6 +3,10 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.http import JsonResponse
 
+from django.urls import reverse
+from django.views.generic.edit import DeleteView
+from django.contrib.auth.mixins import LoginRequiredMixin
+
 from .models import Frame, Photo
 
 
@@ -52,7 +56,6 @@ def upload_view(request, frame_id):
 
     return render(request, 'upload.html', {'frame': frame})
 
-
 def frame_kiosk(request, token):
     """
     Public view for the physical frame.
@@ -90,3 +93,24 @@ def home_view(request):
         context['frames'] = frames
 
     return render(request, 'home.html', context)
+
+
+class PhotoDeleteView(LoginRequiredMixin, DeleteView):
+    model = Photo
+    template_name = 'delete_photo.html'
+    context_object_name = 'photo'
+
+    def get_queryset(self):
+        """
+        Security: Only allow finding/deleting photos that belong
+        to frames owned by the current logged-in user.
+        """
+        return Photo.objects.filter(frame__owner=self.request.user)
+
+    def get_success_url(self):
+        """
+        After deleting, go back to the Frame Detail page.
+        """
+        # self.object is the photo that was just deleted (Django keeps a reference)
+        return reverse('frame_detail', kwargs={'frame_id': self.object.frame.id})
+
