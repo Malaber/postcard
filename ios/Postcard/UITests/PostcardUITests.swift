@@ -23,8 +23,11 @@ final class PostcardUITests: XCTestCase {
         app.staticTexts["Hello family"].tap()
         let edit = app.textFields["editCaption"]
         XCTAssertTrue(edit.waitForExistence(timeout: 10)); edit.tap(); edit.typeText("!")
+        let editedCaption = try XCTUnwrap(edit.value as? String)
+        XCTAssertTrue(editedCaption.contains("!"))
+        XCTAssertNotEqual(editedCaption, "Hello family")
         app.buttons["Save"].tap()
-        XCTAssertTrue(app.staticTexts["Hello family!"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts[editedCaption].waitForExistence(timeout: 15))
         app.tabBars.buttons["Viewers"].tap()
         app.staticTexts["Living room"].tap()
         XCTAssertTrue(app.buttons["Share viewer link"].waitForExistence(timeout: 10))

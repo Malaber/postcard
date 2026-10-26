@@ -14,13 +14,14 @@ final class AppModel {
     var selected: Viewer? { viewers.first { $0.id == selectedID } }
 
     init() {
-        do { credential = try CredentialStore.read() } catch { self.error = error.localizedDescription }
         #if DEBUG
         if let token = ProcessInfo.processInfo.environment["POSTCARD_E2E_TOKEN"],
            let raw = ProcessInfo.processInfo.environment["POSTCARD_E2E_SERVER"], let server = URL(string: raw) {
             credential = Credential(server: server, token: token, userID: "e2e")
+            return
         }
         #endif
+        do { credential = try CredentialStore.read() } catch { self.error = error.localizedDescription }
     }
     func refresh() async throws {
         guard let api else { return }
