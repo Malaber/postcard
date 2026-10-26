@@ -70,3 +70,20 @@ class Photo(models.Model):
 
     def __str__(self):
         return f"Photo for {self.frame.name} ({self.created_at.date()})"
+
+    @property
+    def viewer_image_url(self):
+        from django.urls import reverse
+        return reverse('viewer_photo', args=[self.frame.access_token, self.id])
+
+
+# Remove uploaded files after successful database deletion, including cascades.
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
+from django.db import transaction
+
+@receiver(post_delete, sender=Photo)
+def delete_photo_file(sender, instance, **kwargs):
+    if instance.image:
+        storage, name = instance.image.storage, instance.image.name
+        transaction.on_commit(lambda: storage.delete(name))

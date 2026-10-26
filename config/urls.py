@@ -14,6 +14,8 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from accounts import mobile
+from postcard.api import viewer_photo
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import TemplateView
@@ -22,6 +24,11 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
+    path('api/v1/auth/mobile/authorize', mobile.authorize),
+    path('api/v1/auth/mobile/token', mobile.exchange),
+    path('api/v1/auth/mobile/logout', mobile.logout),
+    path('api/v1/', include('postcard.api')),
+    path('p/frame/<str:token>/photo/<uuid:photo_id>/', viewer_photo, name='viewer_photo'),
     path('admin/', admin.site.urls),
     path('auth/', include('accounts.urls')),
 
@@ -29,7 +36,3 @@ urlpatterns = [
     path('', postcard_views.home_view, name='home'),
     path('p/', include('postcard.urls')),
 ]
-
-# This serves media files (uploaded photos) during development (DEBUG=True)
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

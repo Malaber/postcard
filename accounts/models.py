@@ -44,3 +44,19 @@ class PasskeyCredential(models.Model):
 
     def __str__(self):
         return f"{self.name or 'Passkey'} ({self.user.username})"
+
+
+class AuthFlow(models.Model):
+    """Database-backed one-use ceremony or PKCE grant; safe across workers."""
+    id = models.CharField(primary_key=True, max_length=64)
+    session_key = models.CharField(max_length=64, blank=True)
+    kind = models.CharField(max_length=24)
+    payload = models.JSONField(default=dict)
+    expires_at = models.DateTimeField()
+    consumed = models.BooleanField(default=False)
+
+
+class MobileSession(models.Model):
+    token_hash = models.CharField(primary_key=True, max_length=64)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    expires_at = models.DateTimeField()

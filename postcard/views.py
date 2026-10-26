@@ -8,6 +8,7 @@ from django.views.generic.edit import DeleteView
 from django.contrib.auth.mixins import LoginRequiredMixin
 
 from .models import Frame, Photo
+from .api import normalized_image
 
 
 @login_required
@@ -36,7 +37,12 @@ def upload_view(request, frame_id):
         images = request.FILES.getlist('images')
         new_photo_ids = []
 
-        for image in images:
+        try:
+            normalized = [normalized_image(image) for image in images]
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return render(request, 'upload.html', {'frame': frame}, status=400)
+        for image in normalized:
             photo = Photo.objects.create(
                 frame=frame,
                 image=image,
@@ -75,13 +81,15 @@ def frame_photos_json(request, token):
     Used by the Kiosk JS to sync its local cache.
     """
     frame = get_object_or_404(Frame, access_token=token)
-    photos = frame.photos.all()
+    photos = frame.photos.filter(is_active=True)
 
     data = {
         "name": frame.name,
-        "photos": [p.image.url for p in photos]
+        "photos": [reverse("viewer_photo", args=[frame.access_token, p.id]) for p in photos]
     }
-    return JsonResponse(data)
+    response = JsonResponse(data)
+    response["Cache-Control"] = "no-store"
+    return response
 
 def home_view(request):
     context = {}
