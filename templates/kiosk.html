@@ -1,196 +1,29 @@
-{% load static %}
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ frame.name }} - Player</title>
-    <style>
-        /* --- VISUAL STYLE --- */
-
-        /* Kiosk Reset */
-        body, html {
-            margin: 0; padding: 0;
-            width: 100%; height: 100%;
-            background-color: #000; /* Black background is crucial for cross-fade */
-            overflow: hidden;
-            cursor: none;
-        }
-
-        /* The Container */
-        #stage {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        /* The Photos */
-        .slide {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            object-fit: contain; /* Keep the pretty "no crop" look */
-            opacity: 0; /* Default state is invisible */
-            transition: opacity 1.5s ease-in-out; /* Smooth Fade duration */
-            z-index: 1;
-        }
-
-        /* Class to show the active photo */
-        .slide.active {
-            opacity: 1; /* Fades in when added */
-            z-index: 2; /* Ensures the incoming photo is visually on top */
-        }
-
-        /* Loading / Message State */
-        .message {
-            color: #555;
-            font-family: sans-serif;
-            text-align: center;
-            z-index: 10;
-        }
-    </style>
-</head>
-<body>
-
-<div id="stage">
-    <div class="message" id="loading-msg">
-        <h1>Loading Photos...</h1>
-        <p>{{ frame.name }}</p>
-    </div>
-</div>
-
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>{{ frame.name }} — Postcard</title>
+<style>html,body{margin:0;height:100%;background:#080b12;color:white;font-family:system-ui}main{height:100%;display:grid;place-items:center}img{width:100%;height:100%;object-fit:contain;position:absolute;inset:0}#status{text-align:center}</style></head>
+<body><main><div id="status">Waiting for your first photo…</div><img id="photo" alt="Photo on {{ frame.name }}" hidden></main>
 <script>
-    /* --- CONFIGURATION --- */
-    const TOKEN = "{{ frame.access_token }}";
-    const API_URL = `/p/frame/${TOKEN}/api/`;
-    const PHOTO_CACHE_NAME = `frame-photos-${TOKEN}`;
-
-    const SYNC_INTERVAL = 1000; // TODO Shorter interval if not DEBUG 60*1000 is 60 sec, use 300*1000
-    const SLIDE_DURATION = 5000;    // TODO set to 20s or something, currently 5s for debugging
-
-    let playlist = []; // Master list (All photos currently in cache)
-    let queue = [];    // Current Playback Queue (The "Bag")
-    let slideTimer = null;
-
-    /* --- HELPER: Fisher-Yates Shuffle --- */
-    function shuffle(array) {
-        let currentIndex = array.length, randomIndex;
-        while (currentIndex !== 0) {
-            randomIndex = Math.floor(Math.random() * currentIndex);
-            currentIndex--;
-            [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
-        }
-        return array;
+const endpoint = "{% url 'frame_photos_json' frame.access_token %}";
+const image = document.querySelector('#photo'), status = document.querySelector('#status');
+let photos = [], index = 0, current = '';
+function show() {
+  if (!photos.length) { image.hidden = true; image.removeAttribute('src'); current = ''; return; }
+  index %= photos.length; current = photos[index]; image.src = current; image.hidden = false; status.hidden = true;
+}
+async function sync() {
+  try {
+    const response = await fetch(endpoint, {cache: 'no-store'});
+    if (response.status === 404) {
+      photos = []; show(); status.hidden = false; status.textContent = 'Viewer disconnected. Open a new private link.'; return;
     }
-
-    /* --- 1. SERVICE WORKER --- */
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register("{% static 'sw.js' %}")
-            .catch(err => console.error('SW Failed', err));
-    }
-
-    /* --- 2. SYNC ENGINE --- */
-    async function syncPhotos() {
-        try {
-            const response = await fetch(API_URL);
-            if (!response.ok) throw new Error("Offline");
-            const data = await response.json();
-            const serverUrls = data.photos;
-
-            const cache = await caches.open(PHOTO_CACHE_NAME);
-            const cachedKeys = await cache.keys();
-            const cachedUrls = cachedKeys.map(req => new URL(req.url).pathname);
-
-            const toDownload = serverUrls.filter(url => !cachedUrls.includes(url));
-            await Promise.all(toDownload.map(url => cache.add(url)));
-
-            const toDelete = cachedKeys.filter(req => !serverUrls.includes(new URL(req.url).pathname));
-            await Promise.all(toDelete.map(req => cache.delete(req)));
-
-            await refreshPlaylistFromCache();
-        } catch (e) {
-            // console.log("Sync failed (Offline mode).");
-            await refreshPlaylistFromCache();
-        }
-    }
-
-    /* --- 3. PLAYLIST MANAGER --- */
-    async function refreshPlaylistFromCache() {
-        const cache = await caches.open(PHOTO_CACHE_NAME);
-        const keys = await cache.keys();
-        const newPlaylist = [];
-
-        for (const request of keys) {
-            const response = await cache.match(request);
-            if (response) {
-                const blob = await response.blob();
-                newPlaylist.push(URL.createObjectURL(blob));
-            }
-        }
-
-        if (newPlaylist.length > 0) {
-            playlist = newPlaylist; // Update master list
-
-            // Remove loading msg if present
-            const msg = document.getElementById('loading-msg');
-            if (msg) msg.remove();
-
-            // If this is the first boot, kickstart the slideshow
-            if (!slideTimer) startSlideshow();
-        }
-    }
-
-    /* --- 4. VISUAL PLAYER (Queue Based) --- */
-    function startSlideshow() {
-        showNextSlide();
-        slideTimer = setInterval(showNextSlide, SLIDE_DURATION);
-    }
-
-    function showNextSlide() {
-        // A. REFILL BAG: If the queue is empty, refill it from the master playlist and shuffle
-        if (queue.length === 0) {
-            if (playlist.length === 0) return; // Still no photos? Wait.
-
-            console.log("Loop complete. Refilling and shuffling queue...");
-            queue = [...playlist]; // Create a copy
-            shuffle(queue);        // Shuffle the copy
-        }
-
-        const stage = document.getElementById('stage');
-        const oldSlide = stage.querySelector('.slide.active');
-
-        // B. POP: Get the next photo from the shuffled queue
-        const url = queue.pop();
-
-        // Create the new image
-        const newSlide = document.createElement('img');
-        newSlide.src = url;
-        newSlide.className = 'slide';
-        stage.appendChild(newSlide);
-
-        // Force reflow
-        void newSlide.offsetWidth;
-
-        // C. ANIMATE
-        newSlide.classList.add('active');
-
-        if (oldSlide) {
-            oldSlide.classList.remove('active');
-            setTimeout(() => {
-                if (oldSlide.parentNode === stage) {
-                    stage.removeChild(oldSlide);
-                }
-            }, 2000); // Wait for transition (1.5s) to finish
-        }
-    }
-
-    // --- BOOT ---
-    syncPhotos();
-    setInterval(syncPhotos, SYNC_INTERVAL);
-</script>
-
-</body>
-</html>
+    if (!response.ok) return;
+    const data = await response.json(); photos = data.photos;
+    if (!photos.includes(current)) { index = 0; show(); }
+    if (!photos.length) { status.hidden = false; status.textContent = 'Waiting for your first photo…'; }
+  } catch { /* Keep the currently displayed photo during a temporary outage. */ }
+}
+sync(); setInterval(sync, 5000);
+setInterval(() => { index++; show(); }, 15000);
+</script></body></html>

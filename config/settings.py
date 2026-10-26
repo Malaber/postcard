@@ -144,3 +144,29 @@ MEDIA_URL = '/media/'
 
 # Path where media is stored
 MEDIA_ROOT = BASE_DIR / 'media'
+# Explicit origin keeps WebAuthn independent of untrusted Host headers.
+import os
+from urllib.parse import urlsplit
+from django.core.exceptions import ImproperlyConfigured
+
+APP_BASE_URL = os.environ.get('APP_BASE_URL', 'http://localhost:8000').rstrip('/')
+_origin = urlsplit(APP_BASE_URL)
+if (_origin.scheme not in ('http', 'https') or not _origin.hostname or _origin.path
+        or _origin.query or _origin.fragment or _origin.username
+        or (_origin.scheme != 'https' and _origin.hostname != 'localhost')):
+    raise ImproperlyConfigured('APP_BASE_URL must be an HTTPS origin (HTTP localhost allowed).')
+WEBAUTHN_RP_ID = _origin.hostname
+DEBUG = os.environ.get('DEBUG', 'true').lower() == 'true'
+SECRET_KEY = os.environ.get('SECRET_KEY', SECRET_KEY if DEBUG else '')
+if not SECRET_KEY:
+    raise ImproperlyConfigured('Set SECRET_KEY in production.')
+ALLOWED_HOSTS = [WEBAUTHN_RP_ID, 'localhost', '127.0.0.1', 'testserver'] if DEBUG else [WEBAUTHN_RP_ID]
+CSRF_TRUSTED_ORIGINS = [APP_BASE_URL]
+SESSION_COOKIE_SECURE = _origin.scheme == 'https'
+CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
+LOGIN_URL = '/auth/login/'
+STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+DATABASES['default']['NAME'] = os.environ.get('DATABASE_PATH', str(BASE_DIR / 'db.sqlite3'))
+MEDIA_ROOT = Path(os.environ.get('MEDIA_ROOT', str(BASE_DIR / 'media')))
+DATA_UPLOAD_MAX_MEMORY_SIZE = 32 * 1024 * 1024

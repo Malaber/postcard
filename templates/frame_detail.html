@@ -64,7 +64,7 @@
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px;">
             {% for photo in photos %}
                 <div class="photo-card {% if photo.id|stringformat:'s' in new_ids %}new-item{% endif %}">
-                    <img src="{{ photo.image.url }}" class="photo-img" loading="lazy">
+                    <img src="{{ photo.viewer_image_url }}" class="photo-img" loading="lazy">
                     <div class="photo-meta">
                         <span>{{ photo.created_at|date:"M d" }}</span>
                         <a href="{% url 'photo_delete' photo.id %}"

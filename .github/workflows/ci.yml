@@ -1,0 +1,50 @@
+name: Postcard CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  backend-and-browser-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.5'
+      - run: uv sync --frozen --python 3.14
+      - run: uv run python manage.py makemigrations --check --dry-run
+      - run: uv run python manage.py test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-e2e
+          path: test-results/
+  ios-e2e:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.5'
+      - run: uv sync --frozen --python 3.14
+      - run: brew install xcodegen
+      - run: bash ios/Postcard/Scripts/test.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-e2e
+          path: test-results/*.xcresult

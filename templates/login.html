@@ -1,63 +1,17 @@
 {% extends 'base.html' %}
-
+{% load static %}
 {% block content %}
-<div style="max-width: 320px; margin: 50px auto; background: white; padding: 2rem; border-radius: 12px; border: 1px solid #ddd;">
-    <h2 style="margin-top:0;">Login</h2>
-    <input type="text" id="username" placeholder="Username" style="width: 100%; padding: 10px; margin: 15px 0; border: 1px solid #ccc; border-radius: 6px;">
-    <button onclick="loginUser()" style="width: 100%; padding: 12px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer;">
-        Sign In with Passkey
-    </button>
-    <div id="status" style="margin-top: 15px; color: #666;"></div>
-</div>
-
-<script>
-    async function loginUser() {
-        const username = document.getElementById('username').value;
-        const status = document.getElementById('status');
-
-        if (!username) { status.innerHTML = "Enter username"; return; }
-
-        try {
-            status.innerHTML = "Requesting challenge...";
-
-            // 1. Get Options
-            const optionsRes = await fetch(`/auth/login/options/?username=${encodeURIComponent(username)}`);
-            if (!optionsRes.ok) throw new Error(await optionsRes.text());
-            const optionsJSON = await optionsRes.json();
-
-            // 2. Browser Signature (navigator.credentials.get is for LOGIN)
-            status.innerHTML = "Scan fingerprint...";
-            // We need to convert JSON to Native options using the new API
-            const publicKeyOptions = PublicKeyCredential.parseRequestOptionsFromJSON(optionsJSON);
-
-            const credential = await navigator.credentials.get({ publicKey: publicKeyOptions });
-
-            // 3. Send back
-            const payload = {
-                ...credential.toJSON(),
-                username: username
-            };
-
-            status.innerHTML = "Verifying...";
-            const verifyRes = await fetch('/auth/login/verify/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            const result = await verifyRes.json();
-
-            if (verifyRes.ok) {
-                status.innerHTML = "Success! Redirecting...";
-                window.location.href = "/"; // Go to Homepage
-            } else {
-                throw new Error(result.message);
-            }
-
-        } catch (e) {
-            console.error(e);
-            status.innerHTML = `<span style="color:red">Error: ${e.message}</span>`;
-        }
-    }
-</script>
+<section style="max-width:420px;margin:auto">
+<h1>Send a little joy.</h1>
+<p>Your photos, on their favourite screen. Sign in or create a Postcard account with a passkey.</p>
+<form id="auth-form" data-next="{{ next_url }}">
+{% csrf_token %}
+<label for="username">Username <small>(optional when signing in)</small></label>
+<input id="username" name="username" autocomplete="username webauthn" maxlength="150" style="display:block;padding:12px;margin:16px 0;width:90%">
+<button type="submit">Sign in with passkey</button>
+<button type="button" id="register">{% if user.is_authenticated %}Add passkey{% else %}Create account{% endif %}</button>
+<p id="status" role="status" aria-live="polite"></p>
+</form>
+</section>
+<script type="module" src="{% static 'auth.js' %}"></script>
 {% endblock %}

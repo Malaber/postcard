@@ -1,11 +1,12 @@
 [project]
 name = "postcard"
 version = "0.1.0"
-description = "Add your description here"
+description = "Send photos to private digital picture viewers"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "django>=6.0.1",
+    "fastpasskey @ https://github.com/Malaber/python-libs/releases/download/fastpasskey-v0.2.6/fastpasskey-0.2.6-py3-none-any.whl#sha256=b66a362eb0805860692e1d01bc51db16c8a832a684453a8c825bfe9788d0d19e",
     "pillow>=12.1.0",
     "python-dotenv>=1.2.1",
     "webauthn>=2.0",

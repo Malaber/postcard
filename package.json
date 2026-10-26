@@ -1,0 +1,10 @@
+{
+  "name": "postcard-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {"test:e2e": "node scripts/browser-e2e.mjs"},
+  "devDependencies": {
+    "@malaber/fastpasskey": "https://github.com/Malaber/python-libs/releases/download/fastpasskey-v0.2.6/malaber-fastpasskey-0.2.6.tgz",
+    "playwright": "1.58.2"
+  }
+}

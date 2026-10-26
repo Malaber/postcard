@@ -1,0 +1,40 @@
+{% extends 'login.html' %}
+{% block content %}
+{{ block.super }}
+<h2>Your passkeys</h2>
+<p>Add a second passkey before removing one. Removal requires confirmation with another passkey.</p>
+<ul id="keys">
+{% for key in keys %}
+<li data-key="{{ key.id }}"><input aria-label="Passkey name" value="{{ key.name|default:'Passkey' }}" maxlength="120">
+<button data-action="rename">Rename</button>
+<button data-action="delete" {% if keys|length < 2 %}disabled{% endif %}>Remove</button></li>
+{% endfor %}
+</ul>
+<script type="module">
+import {publicKeyFromJSON, credentialToJSON} from '/auth/assets/fastpasskey.js';
+document.querySelector('#keys').addEventListener('click', async event => {
+  const action = event.target.dataset.action;
+  if (!action) return;
+  const row = event.target.closest('[data-key]');
+  const status = document.querySelector('#status');
+  async function post(step, payload) {
+    const response = await fetch(`/auth/passkeys/${row.dataset.key}/${step}/`, {method: 'POST',
+      headers: {'Content-Type':'application/json', 'X-CSRFToken':document.querySelector('[name=csrfmiddlewaretoken]').value},
+      body:JSON.stringify(payload)});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Request failed.');
+    return data;
+  }
+  try {
+    if (action === 'rename') await post('rename', {name: row.querySelector('input').value});
+    else {
+      if (!confirm('Remove this passkey? Confirm using another saved passkey.')) return;
+      const options = await post('delete/options', {});
+      const credential = await navigator.credentials.get({publicKey:publicKeyFromJSON(options)});
+      await post('delete/verify', {credential:credentialToJSON(credential)});
+    }
+    window.location.reload();
+  } catch (error) { status.textContent = error.message; }
+});
+</script>
+{% endblock %}

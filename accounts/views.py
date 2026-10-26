@@ -1,172 +1,206 @@
+"""Django adapter for the shared Malaber FastPasskey core and browser client."""
+import hashlib
 import json
-from django.http import JsonResponse, HttpResponseBadRequest
-from django.views.decorators.csrf import csrf_exempt
+import secrets
+import uuid
+from datetime import timedelta
+from functools import wraps
+from importlib.resources import files
+from urllib.parse import urlencode
+
+from django.core.exceptions import ValidationError
+from django.conf import settings
 from django.contrib.auth import login
+from django.db import IntegrityError, transaction
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import redirect, render
+from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.http import require_POST
+from fastpasskey import FastPasskey, PasskeyUser
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 
-from webauthn import (
-    generate_registration_options,
-    verify_registration_response,
-    generate_authentication_options,
-    verify_authentication_response,
-
-    options_to_json,
-    base64url_to_bytes,
-)
-from webauthn.helpers import bytes_to_base64url
-from webauthn.helpers.structs import (
-    AuthenticatorSelectionCriteria,
-    UserVerificationRequirement,
-    PublicKeyCredentialDescriptor,
-    PublicKeyCredentialType,
-)
+from .models import AuthFlow, PasskeyCredential, User
 
 
-from .models import User, PasskeyCredential
-from .utils import RP_ID, RP_NAME, ORIGIN
-
-import traceback
+def service():
+    return FastPasskey(rp_name='Postcard', rp_id=settings.WEBAUTHN_RP_ID, origin=settings.APP_BASE_URL)
 
 
-def register_options(request):
-    """
-    Step 1: The frontend asks for a challenge to sign.
-    """
-    username = request.GET.get('username')
-    if not username:
-        return HttpResponseBadRequest("Username missing")
-
-    if User.objects.filter(username=username).exists():
-        return HttpResponseBadRequest("User already exists")
-
-    # Generate the options (Challenge)
-    options = generate_registration_options(
-        rp_id=RP_ID,
-        rp_name=RP_NAME,
-        user_id=username.encode(),  # WebAuthn requires bytes for ID
-        user_name=username,
-        user_display_name=username,
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            user_verification=UserVerificationRequirement.PREFERRED
-        ),
-    )
-
-    # CRITICAL FIX: Encode bytes to String before storing in Session JSON
-    # 'options.challenge' is bytes, session needs string.
-    request.session['challenge'] = bytes_to_base64url(options.challenge)
-
-    # Return JSON to frontend
-    return JsonResponse(json.loads(options_to_json(options)))
+def json_endpoint(fn):
+    @wraps(fn)
+    def wrapped(request, *args, **kwargs):
+        try:
+            data = json.loads(request.body or '{}')
+            if not isinstance(data, dict):
+                raise ValueError('Expected a JSON object.')
+            return fn(request, data, *args, **kwargs)
+        except (ValueError, KeyError, TypeError, ValidationError, IntegrityError, User.DoesNotExist,
+                PasskeyCredential.DoesNotExist) as exc:
+            return JsonResponse({'detail': 'Request invalid or sign-in expired. Please try again.'}, status=400)
+    return wrapped
 
 
-@csrf_exempt
-def register_verify(request):
+def begin(request, kind, payload):
+    if not request.session.session_key:
+        request.session.create()
+    AuthFlow.objects.filter(expires_at__lte=timezone.now()).delete()
+    flow = AuthFlow.objects.create(id=secrets.token_hex(32), kind=kind, payload=payload,
+                                  session_key=request.session.session_key,
+                                  expires_at=timezone.now() + timedelta(minutes=5))
+    request.session['passkey_flow'] = flow.id
+
+
+def consume(request, kind):
+    query = AuthFlow.objects.filter(id=request.session.get('passkey_flow'), kind=kind,
+                                   session_key=request.session.session_key, consumed=False,
+                                   expires_at__gt=timezone.now())
+    flow = query.first()
+    if not flow or query.update(consumed=True) != 1:
+        raise ValueError('Expired ceremony')
+    return flow.payload
+
+
+def login_page(request):
+    next_url = request.GET.get('next', '/')
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts=set()) or not next_url.startswith('/'):
+        next_url = '/'
+    return render(request, 'login.html', {'next_url': next_url})
+
+
+def asset(request):
+    return HttpResponse(files('fastpasskey').joinpath('static/fastpasskey.js').read_text(),
+                        content_type='text/javascript')
+
+
+@require_POST
+@json_endpoint
+def register_options(request, data):
+    adding = request.user.is_authenticated
+    username = request.user.username if adding else str(data.get('username', '')).strip()
+    if not username or len(username) > 150 or (not adding and User.objects.filter(username=username).exists()):
+        raise ValueError('Choose an unused username')
+    user_id = request.user.id if adding else uuid.uuid4()
+    ceremony = service().begin_registration(
+        user=PasskeyUser(id=user_id.bytes, name=username, display_name=username),
+        request_host=None, request_base_url=settings.APP_BASE_URL,
+        exclude_credential_ids=list(request.user.credentials.values_list('credential_id', flat=True)) if adding else [],
+        state_payload={'user_id': str(user_id), 'username': username, 'adding': adding})
+    begin(request, 'register', ceremony.state)
+    return JsonResponse(ceremony.options)
+
+
+@require_POST
+@json_endpoint
+def register_verify(request, data):
+    state = consume(request, 'register')
     try:
-        data = json.loads(request.body)
-        username = data.get('username')
-
-        challenge_b64 = request.session.get('challenge')
-        if not challenge_b64:
-            # Change this to JSON
-            return JsonResponse({"status": "error", "message": "No challenge found in session"}, status=400)
-
-        verification = verify_registration_response(
-            credential=data,
-            expected_challenge=base64url_to_bytes(challenge_b64),
-            expected_origin=ORIGIN,
-            expected_rp_id=RP_ID,
-        )
-
-        # ... user creation logic (keep as is) ...
-        user = User.objects.create(username=username)
-
-        PasskeyCredential.objects.create(
-            user=user,
-            credential_id=bytes_to_base64url(verification.credential_id),
-            public_key=bytes_to_base64url(verification.credential_public_key),
-            sign_count=verification.sign_count,
-            transports=data.get('response', {}).get('transports', []),
-            name="Primary Passkey"
-        )
-
-        login(request, user)
-        del request.session['challenge']
-
-        return JsonResponse({"status": "ok", "user": username})
-
-    except Exception as e:
-        # 1. Print error to server console
-        print(f"!!! VERIFICATION ERROR: {e}")
-        # 2. Return JSON so frontend can display it
-        return JsonResponse({"status": "error", "message": str(e)}, status=400)
+        result = service().verify_registration(credential=data['credential'], state=state)
+    except Exception as exc:
+        raise ValueError('Invalid passkey') from exc
+    with transaction.atomic():
+        if state['adding']:
+            if not request.user.is_authenticated or str(request.user.id) != state['user_id']:
+                raise ValueError('Account changed')
+            user = User.objects.get(id=state['user_id'], is_active=True)
+        else:
+            user = User(id=state['user_id'], username=state['username'])
+            user.set_unusable_password()
+            user.save()
+        PasskeyCredential.objects.create(user=user, credential_id=bytes_to_base64url(result.credential_id),
+            public_key=bytes_to_base64url(result.credential_public_key), sign_count=result.sign_count,
+            transports=data['credential'].get('response', {}).get('transports', []), name='Passkey')
+    login(request, user)
+    return JsonResponse({'user': user.username})
 
 
-def login_options(request):
-    username = request.GET.get('username')
-    if not username:
-        return HttpResponseBadRequest("Username missing")
-
-    try:
-        user = User.objects.get(username=username)
-    except User.DoesNotExist:
-        return HttpResponseBadRequest("User not found")
-
-    passkeys = PasskeyCredential.objects.filter(user=user)
-    if not passkeys.exists():
-        return HttpResponseBadRequest("No passkeys found for this user")
-
-    # --- FIX START ---
-    # We must use the class 'PublicKeyCredentialDescriptor', not a dictionary!
-    allow_credentials = [
-        PublicKeyCredentialDescriptor(
-            id=base64url_to_bytes(pk.credential_id),
-            type=PublicKeyCredentialType.PUBLIC_KEY
-        )
-        for pk in passkeys
-    ]
-    # --- FIX END ---
-
-    options = generate_authentication_options(
-        rp_id=RP_ID,
-        allow_credentials=allow_credentials,  # Pass the list of objects here
-    )
-
-    request.session['challenge'] = bytes_to_base64url(options.challenge)
-
-    return JsonResponse(json.loads(options_to_json(options)))
+@require_POST
+@json_endpoint
+def login_options(request, data):
+    # Username is optional; it also supports pre-migration non-discoverable keys.
+    username = data.get('username')
+    ids = list(PasskeyCredential.objects.filter(user__username=username, user__is_active=True)
+               .values_list('credential_id', flat=True)) if username else None
+    ceremony = service().begin_authentication(request_host=None, request_base_url=settings.APP_BASE_URL,
+        allow_credential_ids=ids, state_payload={'username': username})
+    begin(request, 'login', ceremony.state)
+    return JsonResponse(ceremony.options)
 
 
-@csrf_exempt
-def login_verify(request):
-    try:
-        data = json.loads(request.body)
-        username = data.get('username')
-        user = User.objects.get(username=username)
+@require_POST
+@json_endpoint
+def login_verify(request, data):
+    state = consume(request, 'login')
+    with transaction.atomic():
+        key = PasskeyCredential.objects.select_for_update().select_related('user').get(
+            credential_id=data['credential']['id'], user__is_active=True)
+        if state.get('username') and key.user.username != state['username']:
+            raise ValueError('Wrong account')
+        try:
+            result = service().verify_authentication(credential=data['credential'], state=state,
+                credential_public_key=base64url_to_bytes(key.public_key), credential_current_sign_count=key.sign_count)
+        except Exception as exc:
+            raise ValueError('Invalid passkey') from exc
+        key.sign_count = result.new_sign_count
+        key.save()
+    login(request, key.user)
+    return JsonResponse({'user': key.user.username})
 
-        credential_id = data.get('id')
-        passkey_record = PasskeyCredential.objects.get(credential_id=credential_id, user=user)
 
-        challenge_b64 = request.session.get('challenge')
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404
+from fastpasskey import validate_passkey_name
 
-        # 1. Capture the return value in a variable named 'verification'
-        verification = verify_authentication_response(
-            credential=data,
-            expected_challenge=base64url_to_bytes(challenge_b64),
-            expected_origin=ORIGIN,
-            expected_rp_id=RP_ID,
-            credential_public_key=base64url_to_bytes(passkey_record.public_key),
-            credential_current_sign_count=int(passkey_record.sign_count)
-        )
 
-        # 2. Use the parsed sign count from the library
-        # The library has already decoded the 'authenticatorData' string for us.
-        passkey_record.sign_count = verification.new_sign_count
-        passkey_record.save()
+@login_required
+def passkeys_page(request):
+    return render(request, 'passkeys.html', {'keys': request.user.credentials.all(), 'next_url': '/auth/passkeys/'})
 
-        login(request, user)
-        del request.session['challenge']
 
-        return JsonResponse({"status": "ok", "user": username})
+@login_required
+@require_POST
+@json_endpoint
+def rename_passkey(request, data, key_id):
+    key = get_object_or_404(PasskeyCredential, id=key_id, user=request.user)
+    key.name = validate_passkey_name(data.get('name', ''))
+    key.save(update_fields=['name'])
+    return JsonResponse({'name': key.name})
 
-    except Exception as e:
-        print(f"LOGIN ERROR: {e}")
-        return JsonResponse({"status": "error", "message": str(e)}, status=400)
+
+@login_required
+@require_POST
+@json_endpoint
+def delete_options(request, data, key_id):
+    key = get_object_or_404(PasskeyCredential, id=key_id, user=request.user)
+    others = list(request.user.credentials.exclude(id=key.id).values_list('credential_id', flat=True))
+    if not others:
+        raise ValueError('Keep at least one passkey')
+    ceremony = service().begin_authentication(request_host=None, request_base_url=settings.APP_BASE_URL,
+        allow_credential_ids=others, state_payload={'key_id': str(key.id), 'user_id': str(request.user.id)})
+    begin(request, 'delete', ceremony.state)
+    return JsonResponse(ceremony.options)
+
+
+@login_required
+@require_POST
+@json_endpoint
+def delete_verify(request, data, key_id):
+    state = consume(request, 'delete')
+    if state['key_id'] != str(key_id) or state['user_id'] != str(request.user.id):
+        raise ValueError('Wrong key')
+    with transaction.atomic():
+        # Lock the owner as well as the credentials to serialize removals.
+        User.objects.select_for_update().get(id=request.user.id)
+        key = PasskeyCredential.objects.select_for_update().get(
+            credential_id=data['credential']['id'], user=request.user)
+        if key.id == key_id:
+            raise ValueError('Confirm with a different passkey')
+        try:
+            result = service().verify_authentication(credential=data['credential'], state=state,
+                credential_public_key=base64url_to_bytes(key.public_key), credential_current_sign_count=key.sign_count)
+        except Exception as exc:
+            raise ValueError('Invalid passkey') from exc
+        key.sign_count = result.new_sign_count
+        key.save()
+        request.user.credentials.filter(id=key_id).delete()
+    return JsonResponse({'ok': True})

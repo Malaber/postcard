@@ -10,3 +10,10 @@ wheels/
 .venv
 /db.sqlite3
 /media/photos/*
+node_modules/
+staticfiles/
+test-results/
+ios/Postcard/*.xcodeproj/
+ios/Postcard/UITests/Fixture.json
+.DS_Store
+.env
